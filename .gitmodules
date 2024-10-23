@@ -1,0 +1,3 @@
+[submodule "selfhost-services"]
+	path = selfhost-services
+	url = git@github.com:pinna9001/selfhost-services
