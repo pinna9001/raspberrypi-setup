@@ -68,7 +68,7 @@ def change_ports_if_necessary(service):
         if port in used_ports:
             while port in used_ports:
                 print(f"Port {port} already used in target docker_compose.yml") 
-                port = input(f"Enter new port for mapping \"{":".join(port_mapping)}\": ")
+                port = input(f"Enter new port for mapping \"{':'.join(port_mapping)}\": ")
             port_mapping[len(port_mapping) % 2] = port
             service["ports"][i] = ":".join(port_mapping)
         used_ports.add(port)
@@ -116,7 +116,7 @@ def merge_services(services, renamed_volumes: dict[str, str]) -> None:
                 current_name = current_service["container_name"]
                 print(f"Container name {current_name} already used in target docker_compose.yml")
                 current_service["container_name"] = get_new_name(used_container_names, current_name)
-                print(f"Container name {current_name} got renamed to {current_service["container_name"]}")
+                print(f"Container name {current_name} got renamed to {current_service['container_name']}")
             used_container_names.add(current_service["container_name"])
         
         rename_volumes_in_service(current_service, renamed_volumes)
@@ -147,10 +147,11 @@ def write_backup_file() -> None:
     
     output_dir_abs = os.path.abspath(output_dir)
     BACKUP_SCRIPT_STARTER = f"""cd {output_dir_abs}
+backup_file="backup-$(date +"%d%m%Y-%H%M%S").tar"
 
 #insert before
 
-tar *.tar.gz docker-compose.yml backup-scripts backup.sh
+tar -cf $backup_file *.tar.gz docker-compose.yml backup-scripts backup.sh
 """
 
     backup_script = BACKUP_SCRIPT_STARTER
