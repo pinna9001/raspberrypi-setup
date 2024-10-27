@@ -5,6 +5,8 @@ mirror_file=/home/git/mirrors.txt
 
 cd $mirror_dir
 
+echo "Updating mirrors [$(date)]"
+
 while IFS="" read -r line || [ -n "$p" ]
 do
 	reponame=$(echo $line | awk -F "/" '{print $NF}')
@@ -20,7 +22,9 @@ do
 	else
 		echo "Updating ${reponame}..."
 		cd $reponame
-		git fetch -q --tags
+		git fetch -q --tags --no-show-forced-updates
 		cd ..
 	fi
-done < $mirror_file 
+done < $mirror_file
+
+echo "Done updating mirrors [$(date)]"
