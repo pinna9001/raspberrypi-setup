@@ -3,6 +3,7 @@
 import argparse
 import os
 import yaml
+import shutil
 from simple_term_menu import TerminalMenu
 
 DOCKER_COMPOSE_FILE = "docker-compose.yml"
@@ -60,17 +61,26 @@ def rename_volumes_in_service(service, renamed_volumes):
 def change_ports_if_necessary(service):
     if not "ports" in service.keys():
         return
+    
     for i in range(len(service["ports"])):
         port_mapping = service["ports"][i].split(":")
         port = port_mapping[0] if len(port_mapping) == 2 else port_mapping[1]
         if port in used_ports:
             while port in used_ports:
-                print(f"Port {port} already used in target docker_compose.yml")
-                port = input("Enter new port: ")
+                print(f"Port {port} already used in target docker_compose.yml") 
+                port = input(f"Enter new port for mapping \"{":".join(port_mapping)}\": ")
             port_mapping[len(port_mapping) % 2] = port
-            used_ports.add(port)
             service["ports"][i] = ":".join(port_mapping)
+        used_ports.add(port)
 
+def update_depends_on(added_services_mapping):
+    for service in added_services_mapping.keys():
+        current_service = docker_compose["services"][added_services_mapping[service]]
+        if "depends_on" in current_service.keys():
+            for i in range(len(current_service["depends_on"])):
+                depended_service = current_service["depends_on"][i]
+                if depended_service in added_services_mapping.keys():
+                    current_service["depends_on"][i] = added_services_mapping[depended_service]
 
 def merge_volumes(volumes) -> dict[str, str]:
     renamed_volumes = dict()
@@ -87,17 +97,16 @@ def merge_volumes(volumes) -> dict[str, str]:
     return renamed_volumes
 
 def merge_services(services, renamed_volumes: dict[str, str]) -> None:
-    service_mapping = dict()
+    added_services_mapping = dict()
     for service in services.keys():
         service_name = service
+        print(service_name)
         if service_name in used_service_names:
             print(f"Service {service_name} already used in target docker_compose.yml")
             service_name = get_new_name(used_service_names, service_name)
             print(f"Service {service} got renamed to {service_name}")
-            used_service_names.add(service_name)
-            service_mapping[service] = service_name
-        else:
-            service_mapping[service] = service
+        added_services_mapping[service] = service_name
+        used_service_names.add(service_name)
         docker_compose["services"][service_name] = services[service]
         
         current_service = docker_compose["services"][service_name]
@@ -108,20 +117,12 @@ def merge_services(services, renamed_volumes: dict[str, str]) -> None:
                 print(f"Container name {current_name} already used in target docker_compose.yml")
                 current_service["container_name"] = get_new_name(used_container_names, current_name)
                 print(f"Container name {current_name} got renamed to {current_service["container_name"]}")
-                used_container_names.add(current_service["container_name"])
+            used_container_names.add(current_service["container_name"])
         
         rename_volumes_in_service(current_service, renamed_volumes)
         change_ports_if_necessary(current_service)
-    
-    # fix depends_on field if necessary
-    for service in service_mapping.keys():
-        current_service = docker_compose["services"][service_mapping[service]]
-        if "depends_on" in current_service.keys():
-            for i in range(len(current_service["depends_on"])):
-                depended_service = current_service["depends_on"][i]
-                if depended_service in service_mapping.keys():
-                    current_service["depends_on"][i] = service_mapping[depended_service]
 
+    update_depends_on(added_services_mapping)    
 
 def merge_compose_files(selected_service_name: str, selected_service_path: str) -> None:
     print(f"Merging service {selected_service_name} into docker-compocse.yml")
@@ -131,16 +132,48 @@ def merge_compose_files(selected_service_name: str, selected_service_path: str) 
         renamed_volumes = dict()
         if "volumes" in service_docker_compose.keys():
             renamed_volumes = merge_volumes(service_docker_compose["volumes"])
-        print(renamed_volumes)
 
         if "services" in service_docker_compose.keys():
             merge_services(service_docker_compose["services"], renamed_volumes)            
 
 def merge_backup_script_files(selected_service_name: str, selected_service_path: str) -> None:
-    pass
+    global backup_scripts_to_add
+    if os.path.exists(os.path.join(selected_service_path, BACKUP_FILE)):
+        print(f"Adding backup script for service {selected_service_name}")
+        backup_scripts_to_add.append(selected_service_name)
 
 def write_backup_file() -> None:
-    pass
+    output_backup_script_file = os.path.join(output_dir, BACKUP_FILE)
+    
+    output_dir_abs = os.path.abspath(output_dir)
+    BACKUP_SCRIPT_STARTER = f"""cd {output_dir_abs}
+
+#insert before
+
+tar *.tar.gz docker-compose.yml backup-scripts backup.sh
+"""
+
+    backup_script = BACKUP_SCRIPT_STARTER
+    if os.path.exists(output_backup_script_file):
+        with open(output_backup_script_file) as f:
+           backup_script = f.read()
+
+    if not os.path.exists(os.path.join(output_dir, "backup-scripts")):
+        os.mkdir(os.path.join(output_dir, "backup-scripts"))
+
+    for service_name in backup_scripts_to_add:
+        script_path = os.path.join(input_dir, service_name, BACKUP_FILE)
+        new_script_path = os.path.join(output_dir, "backup-scripts", "backup-" + service_name + ".sh")
+
+        shutil.copyfile(script_path, new_script_path)
+
+        index = backup_script.find("#insert before")
+        if index == -1:
+            print("Can't add script automatically because the target script doesn't contain insert marker.")
+        backup_script = backup_script[:index] + str(os.path.join(".", "backup-scripts", "backup-" + service_name + ".sh <container_name>")) + "\n" + backup_script[index:]
+
+    with open(output_backup_script_file, "w") as f:
+        f.write(backup_script)
 
 def service_selection_loop(choices:dict[str, str]) -> None:
     options: list[str] = list(choices.keys())
@@ -148,16 +181,20 @@ def service_selection_loop(choices:dict[str, str]) -> None:
     quit_menu = TerminalMenu(["[y] Yes", "[n] No"], title = "Quit?")
     quit_requested = False
 
-    output_file = os.path.join(output_dir, DOCKER_COMPOSE_FILE)
-
+    output_docker_compose_file = os.path.join(output_dir, DOCKER_COMPOSE_FILE)
+    
     global docker_compose
     
     docker_compose = dict()
     docker_compose["services"] = dict()
     docker_compose["volumes"] = dict()
 
-    if os.path.exists(output_file):
-        with open(output_file) as f:
+    if merge_backup_scripts:
+        global backup_scripts_to_add
+        backup_scripts_to_add = []
+
+    if os.path.exists(output_docker_compose_file):
+        with open(output_docker_compose_file) as f:
             docker_compose = yaml.safe_load(f)
         gather_possible_collisions_points()
     
@@ -179,7 +216,7 @@ def service_selection_loop(choices:dict[str, str]) -> None:
            quit_requested = True
            break
     
-    with open(output_file, "w") as f:
+    with open(output_docker_compose_file, "w") as f:
         yaml.safe_dump(docker_compose, f)
     if merge_backup_scripts:
         write_backup_file()
