@@ -1,3 +1,6 @@
 [submodule "selfhost-services"]
 	path = selfhost-services
 	url = git@github.com:pinna9001/selfhost-services
+[submodule "vpn_server"]
+	path = vpn_server
+	url = git@github.com:pinna9001/vpn_server.git
