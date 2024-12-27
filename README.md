@@ -164,4 +164,4 @@ To setup the VPN server you need to setup the three components:
 
 First you should install terraform. For the raspberrypi you have to download a prebuild binary for arm64 (see [here](https://developer.hashicorp.com/terraform/install#linux)). You can just move the file `terraform` to /usr/bin to be able to use it from anywhere.
 
-Then you can stetup the vpn_manager and the discord bot by following the instructions in the repository.
+Then you can stetup the vpn_manager and the discord bot by following the instructions of the README.md in the vpn_server subdirectories vpn_manager and discord-bot.
